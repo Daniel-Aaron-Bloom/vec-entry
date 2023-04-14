@@ -323,6 +323,14 @@ mod tests {
                 self.0.fetch_add(1, Relaxed);
             }
         }
+
+        struct DropChecker(Arc<AtomicUsize>, usize);
+        impl Drop for DropChecker {
+            fn drop(&mut self) {
+                assert_eq!(self.0.load(Relaxed), self.1);
+            }
+        }
+
         let c = Arc::new(AtomicUsize::new(0));
         let mut v = vec![
             DropCounter(Arc::clone(&c)),
@@ -338,6 +346,7 @@ mod tests {
             Entry::Vacant(_) => unreachable!(),
             Entry::Occupied(o) => {
                 assert_eq!(c2.load(Relaxed), 0);
+                let _checker = DropChecker(Arc::clone(&c2), 1);
                 o.replace_entry_with(|_k, _v| {
                     assert_eq!(c2.load(Relaxed), 0);
                     #[allow(unreachable_code)]
