@@ -1,12 +1,13 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 
-use core::{ops::{IndexMut}, mem::{replace, forget}};
+use core::{
+    mem::{forget, replace},
+    ops::IndexMut,
+};
 
-use alloc::{vec::Vec, collections::VecDeque};
-
-
+use alloc::{collections::VecDeque, vec::Vec};
 
 /// A view into a single entry which may either be vacant or occupied.
 ///
@@ -20,17 +21,17 @@ pub enum Entry<'a, C: ?Sized> {
     Vacant(VacantEntry<'a, C>),
 }
 
-pub struct OccupiedEntry<'a, C: ?Sized>{
+pub struct OccupiedEntry<'a, C: ?Sized> {
     index: usize,
     container: &'a mut C,
 }
 
-pub struct VacantEntry<'a, C: ?Sized>{
+pub struct VacantEntry<'a, C: ?Sized> {
     index: usize,
     container: &'a mut C,
 }
 
-impl<'a, C: 'a+Entriable> OccupiedEntry<'a, C> {
+impl<'a, C: 'a + Entriable> OccupiedEntry<'a, C> {
     /// Gets a reference to the index of the entry.
     pub fn key(&self) -> &usize {
         &self.index
@@ -90,9 +91,11 @@ impl<'a, C: 'a+Entriable> OccupiedEntry<'a, C> {
     /// entry and allows to replace or remove it based on the value of the
     /// returned option.
     pub fn replace_entry_with<F, R>(mut self, f: F) -> (Entry<'a, C>, R)
-    where F: FnOnce(&usize, C::T) -> (Option<C::T>, R) {
-        struct RemoveDropHandler<'b, 'a, C: 'a+Entriable>(&'b mut OccupiedEntry<'a, C>);
-        impl<'b, 'a, C: 'a+Entriable> Drop for RemoveDropHandler<'b, 'a, C> {
+    where
+        F: FnOnce(&usize, C::T) -> (Option<C::T>, R),
+    {
+        struct RemoveDropHandler<'b, 'a, C: 'a + Entriable>(&'b mut OccupiedEntry<'a, C>);
+        impl<'b, 'a, C: 'a + Entriable> Drop for RemoveDropHandler<'b, 'a, C> {
             fn drop(&mut self) {
                 forget(self.0.container.remove(self.0.index));
             }
@@ -111,7 +114,10 @@ impl<'a, C: 'a+Entriable> OccupiedEntry<'a, C> {
                 // Go ahead and forgetfully remove the entry
                 drop(handler);
                 let entry = if self.container.len() <= self.index {
-                    Entry::Vacant(VacantEntry{index: self.index, container: self.container})
+                    Entry::Vacant(VacantEntry {
+                        index: self.index,
+                        container: self.container,
+                    })
                 } else {
                     Entry::Occupied(self)
                 };
@@ -126,10 +132,9 @@ impl<'a, C: 'a+Entriable> OccupiedEntry<'a, C> {
             }
         }
     }
-    
 }
 
-impl<'a, C : 'a+Entriable> VacantEntry<'a, C> {
+impl<'a, C: 'a + Entriable> VacantEntry<'a, C> {
     /// Gets a reference to the index of the entry.
     pub fn key(&self) -> &usize {
         &self.index
@@ -175,7 +180,7 @@ pub trait Entriable: IndexMut<usize, Output = Self::T> {
     /// Removes and returns the element at `index` from the container, shifting
     /// all elements with indices greater than or equal to `index` towards the
     /// front.
-    /// 
+    ///
     /// Element at index 0 is the front of the container.
     ///
     /// # Panics
@@ -187,12 +192,17 @@ pub trait Entriable: IndexMut<usize, Output = Self::T> {
 impl<C: Entriable> EntryExt for C {
     fn entry<'a>(&'a mut self, index: usize) -> Entry<'a, Self> {
         if index >= self.len() {
-            Entry::Vacant(VacantEntry{index, container: self})
+            Entry::Vacant(VacantEntry {
+                index,
+                container: self,
+            })
         } else {
-            Entry::Occupied(OccupiedEntry{index, container: self})
+            Entry::Occupied(OccupiedEntry {
+                index,
+                container: self,
+            })
         }
     }
-
 }
 
 impl<T> Entriable for Vec<T> {
@@ -225,9 +235,10 @@ impl<T> Entriable for VecDeque<T> {
 
 #[cfg(test)]
 mod tests {
-    use core::cell::Cell;
+    use core::{cell::Cell, sync::atomic::AtomicUsize};
+    use std::panic;
 
-    use alloc::vec;
+    use alloc::{sync::Arc, vec};
 
     use super::*;
 
@@ -241,13 +252,12 @@ mod tests {
                 assert_eq!(*o.get(), 420);
                 assert_eq!(*o.get_mut(), 420);
 
-                o.replace_entry_with(|k, v|{
+                o.replace_entry_with(|k, v| {
                     assert_eq!(*k, 1);
                     assert_eq!(v, 420);
                     (None, ())
                 });
-
-            },
+            }
         }
 
         assert_eq!(v, [69, 0xDEADBEEF])
@@ -263,13 +273,18 @@ mod tests {
         }
 
         let c = Cell::new(0);
-        let mut v = vec![DropCounter(&c), DropCounter(&c), DropCounter(&c), DropCounter(&c)];
+        let mut v = vec![
+            DropCounter(&c),
+            DropCounter(&c),
+            DropCounter(&c),
+            DropCounter(&c),
+        ];
 
         let entry = match v.entry(1) {
             Entry::Vacant(_) => unreachable!(),
             Entry::Occupied(o) => {
                 assert_eq!(c.get(), 0);
-                let (entry, ()) = o.replace_entry_with(|k, v|{
+                let (entry, ()) = o.replace_entry_with(|k, v| {
                     assert_eq!(*k, 1);
                     assert_eq!(c.get(), 0);
                     drop(v);
@@ -278,14 +293,14 @@ mod tests {
                 });
                 assert_eq!(c.get(), 1);
                 entry
-            },
+            }
         };
 
         match entry {
             Entry::Vacant(_) => unreachable!(),
             Entry::Occupied(o) => {
                 assert_eq!(c.get(), 1);
-                o.replace_entry_with(|k, v|{
+                let (entry, ()) = o.replace_entry_with(|k, v| {
                     assert_eq!(*k, 1);
                     assert_eq!(c.get(), 1);
                     drop(v);
@@ -293,11 +308,45 @@ mod tests {
                     (Some(DropCounter(&c)), ())
                 });
                 assert_eq!(c.get(), 2);
-                
+                entry
             }
-        }
+        };
         drop(v);
         assert_eq!(c.get(), 5);
+    }
+    #[test]
+    fn panic_drop_count() {
+        use core::sync::atomic::Ordering::Relaxed;
+        struct DropCounter(Arc<AtomicUsize>);
+        impl Drop for DropCounter {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Relaxed);
+            }
+        }
+        let c = Arc::new(AtomicUsize::new(0));
+        let mut v = vec![
+            DropCounter(Arc::clone(&c)),
+            DropCounter(Arc::clone(&c)),
+            DropCounter(Arc::clone(&c)),
+            DropCounter(Arc::clone(&c)),
+        ];
 
+        let c2 = Arc::clone(&c);
+        let prev_hook = panic::take_hook();
+        panic::set_hook(Box::new(|_| {}));
+        panic::catch_unwind(move || match v.entry(1) {
+            Entry::Vacant(_) => unreachable!(),
+            Entry::Occupied(o) => {
+                assert_eq!(c2.load(Relaxed), 0);
+                o.replace_entry_with(|_k, _v| {
+                    assert_eq!(c2.load(Relaxed), 0);
+                    #[allow(unreachable_code)]
+                    (None, panic!("oh no!"))
+                });
+            }
+        })
+        .unwrap_err();
+        panic::set_hook(prev_hook);
+        assert_eq!(c.load(Relaxed), 4);
     }
 }
